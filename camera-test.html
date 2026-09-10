@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Camera Test</title>
+</head>
+<body>
+
+<h1>Camera Test</h1>
+
+<video id="video" autoplay playsinline width="350"></video>
+
+<br><br>
+
+<button onclick="startCamera()">START CAMERA</button>
+
+<p id="status">Camera not started</p>
+
+<script>
+async function startCamera() {
+    const video = document.getElementById("video");
+    const status = document.getElementById("status");
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
+
+        video.srcObject = stream;
+        status.innerText = "Camera is working!";
+    } catch (error) {
+        status.innerText = "Camera Error: " + error.name + " - " + error.message;
+        console.log(error);
+    }
+}
+</script>
+
+</body>
+</html>
