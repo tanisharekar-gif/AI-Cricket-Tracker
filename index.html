@@ -9,52 +9,57 @@
 
 <body>
 
-    <header>
-        <h1>🏏 AI Cricket Tracker</h1>
-        <p>Ball Tracking & Speed Analysis</p>
-    </header>
+<header>
+    <h1>🏏 AI Cricket Tracker</h1>
+    <p>Ball Tracking & Analysis</p>
+</header>
 
-    <main>
+<main>
 
-        <section class="camera-section">
-            <video id="video" autoplay playsinline></video>
+    <section class="camera-section">
 
-            <div id="cameraMessage">
-                Camera is ready
-            </div>
-        </section>
+        <video id="video" autoplay playsinline></video>
 
-        <section class="controls">
-            <button id="startButton">START CAMERA</button>
-            <button id="stopButton">STOP CAMERA</button>
-        </section>
+        <canvas id="trackingCanvas"></canvas>
 
-        <section class="stats">
+        <div id="cameraMessage">
+            Camera OFF
+        </div>
 
-            <div class="card">
-                <h3>Ball Speed</h3>
-                <p id="speed">0 km/h</p>
-            </div>
+    </section>
 
-            <div class="card">
-                <h3>Distance</h3>
-                <p id="distance">0 m</p>
-            </div>
+    <section class="controls">
+        <button id="startButton">START CAMERA</button>
+        <button id="stopButton">STOP CAMERA</button>
+        <button id="trackingButton">START TRACKING</button>
+    </section>
 
-            <div class="card">
-                <h3>Status</h3>
-                <p id="status">Ready</p>
-            </div>
+    <section class="stats">
 
-        </section>
+        <div class="card">
+            <h3>Ball Speed</h3>
+            <p id="speed">0 km/h</p>
+        </div>
 
-    </main>
+        <div class="card">
+            <h3>Distance</h3>
+            <p id="distance">0 m</p>
+        </div>
 
-    <footer>
-        <p>AI Cricket Tracker</p>
-    </footer>
+        <div class="card">
+            <h3>Status</h3>
+            <p id="status">Ready</p>
+        </div>
 
-    <script src="script.js"></script>
+    </section>
+
+</main>
+
+<footer>
+    <p>AI Cricket Tracker</p>
+</footer>
+
+<script src="script.js"></script>
 
 </body>
 </html>
