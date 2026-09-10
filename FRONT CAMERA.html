@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Front Camera Test</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 20px;
+        }
+
+        video {
+            width: 95%;
+            max-width: 600px;
+            border-radius: 15px;
+            background: black;
+        }
+
+        button {
+            margin: 15px 5px;
+            padding: 14px 25px;
+            font-size: 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        #start {
+            background: green;
+            color: white;
+        }
+
+        #stop {
+            background: red;
+            color: white;
+        }
+
+        #status {
+            margin: 15px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>📱 Front Camera Test</h1>
+
+    <video id="video" autoplay playsinline></video>
+
+    <br>
+
+    <button id="start">START FRONT CAMERA</button>
+    <button id="stop">STOP CAMERA</button>
+
+    <p id="status">Camera OFF</p>
+
+    <script>
+        const video = document.getElementById("video");
+        const start = document.getElementById("start");
+        const stop = document.getElementById("stop");
+        const status = document.getElementById("status");
+
+        let stream = null;
+
+        async function startCamera() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("Camera not supported");
+                }
+
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: "user"
+                    },
+                    audio: false
+                });
+
+                video.srcObject = stream;
+
+                await video.play();
+
+                status.textContent = "FRONT CAMERA ON";
+
+            } catch (error) {
+                console.error(error);
+                status.textContent = "Camera Error: " + error.name;
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+
+            video.srcObject = null;
+            status.textContent = "Camera OFF";
+        }
+
+        start.addEventListener("click", startCamera);
+        stop.addEventListener("click", stopCamera);
+    </script>
+
+</body>
+</html>
