@@ -16,26 +16,35 @@ let stream = null;
 let tracking = false;
 let animationId = null;
 
-let selectedBall = null;
+let previousFrame = null;
+let lastBall = null;
 let trail = [];
 
 let lastTime = 0;
 let totalDistance = 0;
+let lostFrames = 0;
 
 const scanCanvas = document.createElement("canvas");
 const scanCtx = scanCanvas.getContext("2d", {
     willReadFrequently: true
 });
 
-const scanWidth = 240;
-const scanHeight = 135;
+const W = 160;
+const H = 90;
 
-scanCanvas.width = scanWidth;
-scanCanvas.height = scanHeight;
+scanCanvas.width = W;
+scanCanvas.height = H;
 
 async function startCamera() {
-
     try {
+        if (!navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+            throw new Error("Camera not supported");
+        }
+
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
 
         stream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -52,17 +61,18 @@ async function startCamera() {
         cameraMessage.textContent = "Camera ON";
         statusText.textContent = "Camera Active";
 
+        previousFrame = null;
+        lastBall = null;
+        trail = [];
+        totalDistance = 0;
     } catch (error) {
-
         cameraMessage.textContent = "Camera Error";
         statusText.textContent = error.name;
-
         console.log(error);
     }
 }
 
 function stopCamera() {
-
     tracking = false;
 
     if (animationId) {
@@ -71,24 +81,16 @@ function stopCamera() {
     }
 
     if (stream) {
-
-        stream.getTracks().forEach(track => {
-            track.stop();
-        });
-
+        stream.getTracks().forEach(track => track.stop());
         stream = null;
     }
 
     video.srcObject = null;
 
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    selectedBall = null;
+    previousFrame = null;
+    lastBall = null;
     trail = [];
     totalDistance = 0;
 
@@ -102,211 +104,190 @@ function stopCamera() {
 }
 
 function startTracking() {
-
     if (!stream) {
-
-        statusText.textContent =
-            "Start camera first";
-
+        statusText.textContent = "Start camera first";
         return;
     }
 
     tracking = !tracking;
 
     if (tracking) {
+        trackingButton.textContent = "STOP TRACKING";
+        statusText.textContent = "Searching for ball";
 
-        trackingButton.textContent =
-            "STOP TRACKING";
-
-        statusText.textContent =
-            "Tap the ball";
-
+        previousFrame = null;
+        lastBall = null;
         trail = [];
-        selectedBall = null;
         totalDistance = 0;
+        lostFrames = 0;
+        lastTime = performance.now();
 
         trackBall();
-
     } else {
-
-        trackingButton.textContent =
-            "START TRACKING";
-
-        statusText.textContent =
-            "Tracking stopped";
+        trackingButton.textContent = "START TRACKING";
+        statusText.textContent = "Tracking stopped";
 
         if (animationId) {
             cancelAnimationFrame(animationId);
+            animationId = null;
         }
 
-        ctx.clearRect(
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 }
 
-canvas.addEventListener("click", function(event) {
-
-    if (!tracking) {
-        return;
-    }
-
-    const rect = canvas.getBoundingClientRect();
-
-    const x =
-        (event.clientX - rect.left) *
-        canvas.width /
-        rect.width;
-
-    const y =
-        (event.clientY - rect.top) *
-        canvas.height /
-        rect.height;
-
-    selectedBall = {
-        x: x,
-        y: y
-    };
-
-    trail = [
-        {
-            x: x,
-            y: y
-        }
-    ];
-
-    lastTime = performance.now();
-
-    statusText.textContent =
-        "Ball selected";
-
-    positionText.textContent =
-        Math.round(x) + ", " + Math.round(y);
-});
-
-function findBallNearSelected() {
-
-    if (!selectedBall) {
-        return null;
-    }
-
+function getFrame() {
     scanCtx.drawImage(
         video,
         0,
         0,
-        scanWidth,
-        scanHeight
+        W,
+        H
     );
 
-    const image =
-        scanCtx.getImageData(
-            0,
-            0,
-            scanWidth,
-            scanHeight
-        );
+    return scanCtx.getImageData(
+        0,
+        0,
+        W,
+        H
+    );
+}
 
-    const pixels = image.data;
+function detectBall(frame) {
+    if (!previousFrame) {
+        previousFrame = new Uint8Array(frame.data);
+        return null;
+    }
 
-    const selectedX =
-        selectedBall.x *
-        scanWidth /
-        canvas.width;
+    const current = frame.data;
+    const old = previousFrame;
 
-    const selectedY =
-        selectedBall.y *
-        scanHeight /
-        canvas.height;
+    const motion = new Uint8Array(W * H);
 
-    let bestX = 0;
-    let bestY = 0;
-    let bestScore = 0;
+    for (let y = 2; y < H - 2; y++) {
+        for (let x = 2; x < W - 2; x++) {
 
-    const searchRadius = 35;
+            const i = (y * W + x) * 4;
 
-    for (
-        let y = Math.max(2, selectedY - searchRadius);
-        y < Math.min(scanHeight - 2, selectedY + searchRadius);
-        y += 2
-    ) {
+            const r1 = current[i];
+            const g1 = current[i + 1];
+            const b1 = current[i + 2];
 
-        for (
-            let x = Math.max(2, selectedX - searchRadius);
-            x < Math.min(scanWidth - 2, selectedX + searchRadius);
-            x += 2
-        ) {
+            const r2 = old[i];
+            const g2 = old[i + 1];
+            const b2 = old[i + 2];
 
-            const index =
-                (Math.floor(y) * scanWidth +
-                Math.floor(x)) * 4;
+            const difference =
+                Math.abs(r1 - r2) +
+                Math.abs(g1 - g2) +
+                Math.abs(b1 - b2);
 
-            const r = pixels[index];
-            const g = pixels[index + 1];
-            const b = pixels[index + 2];
-
-            const brightness =
-                (r + g + b) / 3;
-
-            const white =
-                r > 150 &&
-                g > 150 &&
-                b > 150 &&
-                Math.max(r, g, b) -
-                Math.min(r, g, b) < 60;
-
-            const red =
-                r > 100 &&
-                r > g * 1.3 &&
-                r > b * 1.3;
-
-            if (!white && !red) {
-                continue;
-            }
-
-            const dx = x - selectedX;
-            const dy = y - selectedY;
-
-            const distance =
-                Math.sqrt(dx * dx + dy * dy);
-
-            if (distance > searchRadius) {
-                continue;
-            }
-
-            const score =
-                brightness -
-                distance * 2;
-
-            if (score > bestScore) {
-
-                bestScore = score;
-                bestX = x;
-                bestY = y;
+            if (difference > 75) {
+                motion[y * W + x] = 1;
             }
         }
     }
 
-    if (bestScore < 80) {
+    previousFrame = new Uint8Array(current);
+
+    let best = null;
+
+    for (let y = 3; y < H - 3; y += 2) {
+        for (let x = 3; x < W - 3; x += 2) {
+
+            if (!motion[y * W + x]) {
+                continue;
+            }
+
+            let count = 0;
+            let sumX = 0;
+            let sumY = 0;
+            let minX = x;
+            let maxX = x;
+            let minY = y;
+            let maxY = y;
+
+            for (let yy = y - 6; yy <= y + 6; yy++) {
+                for (let xx = x - 6; xx <= x + 6; xx++) {
+
+                    if (
+                        xx < 0 ||
+                        xx >= W ||
+                        yy < 0 ||
+                        yy >= H
+                    ) {
+                        continue;
+                    }
+
+                    if (motion[yy * W + xx]) {
+                        count++;
+
+                        sumX += xx;
+                        sumY += yy;
+
+                        minX = Math.min(minX, xx);
+                        maxX = Math.max(maxX, xx);
+                        minY = Math.min(minY, yy);
+                        maxY = Math.max(maxY, yy);
+                    }
+                }
+            }
+
+            const width = maxX - minX;
+            const height = maxY - minY;
+
+            if (
+                count >= 8 &&
+                count <= 180 &&
+                width <= 25 &&
+                height <= 25
+            ) {
+
+                const centerX = sumX / count;
+                const centerY = sumY / count;
+
+                let score = count;
+
+                if (lastBall) {
+                    const dx = centerX - lastBall.x;
+                    const dy = centerY - lastBall.y;
+
+                    const distance =
+                        Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < 30) {
+                        score += 100;
+                    }
+                }
+
+                if (!best || score > best.score) {
+                    best = {
+                        x: centerX,
+                        y: centerY,
+                        score: score
+                    };
+                }
+            }
+        }
+    }
+
+    if (!best) {
         return null;
     }
 
     return {
-        x: bestX * canvas.width / scanWidth,
-        y: bestY * canvas.height / scanHeight
+        x: best.x * canvas.width / W,
+        y: best.y * canvas.height / H
     };
 }
 
-function drawBall(position) {
-
+function drawBall(ball) {
     ctx.beginPath();
 
     ctx.arc(
-        position.x,
-        position.y,
-        18,
+        ball.x,
+        ball.y,
+        22,
         0,
         Math.PI * 2
     );
@@ -318,19 +299,26 @@ function drawBall(position) {
     ctx.beginPath();
 
     ctx.arc(
-        position.x,
-        position.y,
-        5,
+        ball.x,
+        ball.y,
+        6,
         0,
         Math.PI * 2
     );
 
     ctx.fillStyle = "white";
     ctx.fill();
+
+    ctx.font = "bold 16px Arial";
+    ctx.fillStyle = "white";
+    ctx.fillText(
+        "BALL",
+        ball.x + 25,
+        ball.y - 20
+    );
 }
 
 function drawTrail() {
-
     if (trail.length < 2) {
         return;
     }
@@ -343,66 +331,65 @@ function drawTrail() {
     );
 
     for (let i = 1; i < trail.length; i++) {
-
         ctx.lineTo(
             trail[i].x,
             trail[i].y
         );
     }
 
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 5;
     ctx.strokeStyle = "white";
     ctx.stroke();
 }
 
-function calculateSpeed(position) {
-
-    if (!selectedBall) {
-        return;
-    }
-
+function updateMeasurements(ball) {
     const now = performance.now();
 
-    const dx =
-        position.x -
-        selectedBall.x;
+    if (lastBall) {
 
-    const dy =
-        position.y -
-        selectedBall.y;
+        const dx = ball.x - lastBall.x;
+        const dy = ball.y - lastBall.y;
 
-    const pixels =
-        Math.sqrt(
-            dx * dx +
-            dy * dy
-        );
+        const pixels =
+            Math.sqrt(dx * dx + dy * dy);
 
-    const time =
-        (now - lastTime) / 1000;
+        const time =
+            (now - lastTime) / 1000;
 
-    if (time > 0) {
+        if (time > 0 && pixels < 300) {
 
-        totalDistance += pixels;
+            totalDistance += pixels;
 
-        const pixelsPerSecond =
-            pixels / time;
+            const pixelsPerSecond =
+                pixels / time;
 
-        const estimatedSpeed =
-            pixelsPerSecond * 0.1 * 3.6;
+            const estimatedSpeed =
+                pixelsPerSecond * 0.1 * 3.6;
 
-        if (estimatedSpeed < 250) {
-
-            speedText.textContent =
-                estimatedSpeed.toFixed(1) +
-                " km/h";
+            if (
+                estimatedSpeed >= 0 &&
+                estimatedSpeed < 250
+            ) {
+                speedText.textContent =
+                    estimatedSpeed.toFixed(1) +
+                    " km/h";
+            }
         }
     }
 
     lastTime = now;
+
+    positionText.textContent =
+        Math.round(ball.x) +
+        ", " +
+        Math.round(ball.y);
+
+    distanceText.textContent =
+        (totalDistance / 100).toFixed(2) +
+        " m";
 }
 
 function trackBall() {
-
     if (!tracking || !stream) {
         return;
     }
@@ -414,50 +401,47 @@ function trackBall() {
         canvas.height
     );
 
-    if (selectedBall) {
+    const frame = getFrame();
 
-        const detected =
-            findBallNearSelected();
+    const ball = detectBall(frame);
 
-        if (detected) {
+    if (ball) {
 
-            selectedBall = detected;
+        lastBall = ball;
+        lostFrames = 0;
 
-            trail.push(detected);
+        trail.push({
+            x: ball.x,
+            y: ball.y
+        });
 
-            if (trail.length > 40) {
-                trail.shift();
-            }
-
-            drawTrail();
-            drawBall(detected);
-
-            positionText.textContent =
-                Math.round(detected.x) +
-                ", " +
-                Math.round(detected.y);
-
-            statusText.textContent =
-                "Tracking ball";
-
-            calculateSpeed(detected);
-
-            distanceText.textContent =
-                (totalDistance / 100).toFixed(2) +
-                " m";
-
-        } else {
-
-            drawTrail();
-
-            statusText.textContent =
-                "Ball lost - move slowly";
+        if (trail.length > 60) {
+            trail.shift();
         }
 
-    } else {
+        drawTrail();
+        drawBall(ball);
+        updateMeasurements(ball);
 
         statusText.textContent =
-            "Tap the ball to select it";
+            "Ball detected";
+    } else {
+
+        lostFrames++;
+
+        drawTrail();
+
+        if (lastBall) {
+            drawBall(lastBall);
+        }
+
+        if (lostFrames < 15) {
+            statusText.textContent =
+                "Tracking...";
+        } else {
+            statusText.textContent =
+                "Searching for ball";
+        }
     }
 
     animationId =
