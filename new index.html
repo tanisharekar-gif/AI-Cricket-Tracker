@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Cricket Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header>
+    <h1>🏏 AI Cricket Tracker</h1>
+    <p>Ball Tracking System</p>
+</header>
+
+<main>
+
+    <section class="camera-section">
+
+        <video id="video" autoplay playsinline></video>
+
+        <canvas id="trackingCanvas"></canvas>
+
+        <div id="cameraMessage">Camera OFF</div>
+
+    </section>
+
+    <section class="controls">
+
+        <button id="startButton">
+            START CAMERA
+        </button>
+
+        <button id="stopButton">
+            STOP CAMERA
+        </button>
+
+        <button id="trackingButton">
+            START TRACKING
+        </button>
+
+    </section>
+
+    <section class="instructions">
+
+        <h3>How to use</h3>
+
+        <p>1. Start the camera</p>
+        <p>2. Start tracking</p>
+        <p>3. Tap the cricket ball</p>
+        <p>4. Move the ball</p>
+
+    </section>
+
+    <section class="stats">
+
+        <div class="card">
+            <h3>Tracking</h3>
+            <p id="status">Ready</p>
+        </div>
+
+        <div class="card">
+            <h3>Ball Position</h3>
+            <p id="position">-</p>
+        </div>
+
+        <div class="card">
+            <h3>Distance</h3>
+            <p id="distance">0 m</p>
+        </div>
+
+        <div class="card">
+            <h3>Speed</h3>
+            <p id="speed">0 km/h</p>
+        </div>
+
+    </section>
+
+</main>
+
+<footer>
+    <p>AI Cricket Tracker</p>
+</footer>
+
+<script src="script.js"></script>
+
+</body>
+</html>
