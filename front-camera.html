@@ -1,147 +1,143 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Front Camera</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Front Camera Test</title>
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+<style>
+body {
+    margin: 0;
+    background: #111;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
 
-        body {
-            margin: 0;
-            min-height: 100vh;
-            background: #111;
-            color: white;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
+h1 {
+    margin-top: 25px;
+}
 
-        h1 {
-            margin: 25px 0 10px;
-        }
+video {
+    width: 95%;
+    max-width: 700px;
+    margin-top: 20px;
+    border-radius: 15px;
+    background: black;
+}
 
-        #status {
-            margin: 10px;
-            font-size: 18px;
-        }
+button {
+    margin: 20px 5px;
+    padding: 15px 25px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+}
 
-        .camera {
-            width: 95%;
-            max-width: 700px;
-            position: relative;
-            margin-top: 15px;
-        }
+#start {
+    background: green;
+    color: white;
+}
 
-        video {
-            width: 100%;
-            display: block;
-            background: black;
-            border-radius: 15px;
-            transform: scaleX(-1);
-        }
+#stop {
+    background: red;
+    color: white;
+}
 
-        .buttons {
-            display: flex;
-            gap: 10px;
-            margin: 20px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        button {
-            padding: 14px 24px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-
-        #start {
-            background: green;
-            color: white;
-        }
-
-        #stop {
-            background: red;
-            color: white;
-        }
-    </style>
+#status {
+    font-size: 18px;
+}
+</style>
 </head>
 
 <body>
 
-    <h1>📱 Front Camera</h1>
+<h1>📱 FRONT CAMERA</h1>
 
-    <div id="status">Camera OFF</div>
+<p id="status">Camera OFF</p>
 
-    <div class="camera">
-        <video id="video" autoplay playsinline></video>
-    </div>
+<video id="video" autoplay playsinline></video>
 
-    <div class="buttons">
-        <button id="start">START FRONT CAMERA</button>
-        <button id="stop">STOP CAMERA</button>
-    </div>
+<br>
 
-    <script>
-        const video = document.getElementById("video");
-        const startButton = document.getElementById("start");
-        const stopButton = document.getElementById("stop");
-        const status = document.getElementById("status");
+<button id="start">START CAMERA</button>
+<button id="stop">STOP CAMERA</button>
 
-        let stream = null;
+<script>
 
-        async function startCamera() {
-            try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("Camera not supported");
-                }
+const video = document.getElementById("video");
+const status = document.getElementById("status");
+const start = document.getElementById("start");
+const stop = document.getElementById("stop");
 
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                }
+let stream = null;
 
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: {
-                            exact: "user"
-                        }
-                    },
-                    audio: false
-                });
+async function startCamera() {
 
-                video.srcObject = stream;
+    try {
 
-                video.onloadedmetadata = async function () {
-                    await video.play();
-                    status.textContent = "🟢 FRONT CAMERA ON";
-                };
+        status.textContent = "Requesting camera...";
 
-            } catch (error) {
-                console.error(error);
-                status.textContent = "🔴 CAMERA ERROR: " + error.name;
-            }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            status.textContent = "Camera API not supported";
+            return;
         }
 
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-
-            video.srcObject = null;
-            status.textContent = "Camera OFF";
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
         }
 
-        startButton.addEventListener("click", startCamera);
-        stopButton.addEventListener("click", stopCamera);
-    </script>
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: {
+                    ideal: "user"
+                }
+            },
+            audio: false
+        });
+
+        video.srcObject = stream;
+
+        video.onloadedmetadata = async () => {
+
+            await video.play();
+
+            status.textContent = "🟢 FRONT CAMERA ON";
+
+        };
+
+    } catch (error) {
+
+        console.error(error);
+
+        status.textContent = "🔴 " + error.name;
+
+    }
+
+}
+
+function stopCamera() {
+
+    if (stream) {
+
+        stream.getTracks().forEach(track => track.stop());
+
+        stream = null;
+
+    }
+
+    video.srcObject = null;
+
+    status.textContent = "Camera OFF";
+
+}
+
+start.addEventListener("click", startCamera);
+
+stop.addEventListener("click", stopCamera);
+
+</script>
 
 </body>
 </html>
