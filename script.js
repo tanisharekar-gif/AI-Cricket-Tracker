@@ -9,36 +9,70 @@ const trackingButton = document.getElementById("trackingButton");
 const cameraMessage = document.getElementById("cameraMessage");
 const statusText = document.getElementById("status");
 const positionText = document.getElementById("position");
-const distanceText = document.getElementById("distance");
 const speedText = document.getElementById("speed");
+const distanceText = document.getElementById("distance");
 
 let stream = null;
 let tracking = false;
+let model = null;
 let animationId = null;
+let loadingModel = false;
 
-let previousFrame = null;
+let ballHistory = [];
 let lastBall = null;
-let trail = [];
-
 let lastTime = 0;
 let totalDistance = 0;
-let lostFrames = 0;
 
-const scanCanvas = document.createElement("canvas");
-const scanCtx = scanCanvas.getContext("2d", {
-    willReadFrequently: true
-});
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
 
-const W = 220;
-const H = 124;
+async function loadDetector() {
+    if (model) return true;
+    if (loadingModel) return false;
 
-scanCanvas.width = W;
-scanCanvas.height = H;
+    loadingModel = true;
+    statusText.textContent = "Loading ball detector...";
+
+    try {
+        if (!window.tf) {
+            await loadScript(
+                "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
+            );
+        }
+
+        if (!window.cocoSsd) {
+            await loadScript(
+                "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
+            );
+        }
+
+        await tf.ready();
+        model = await cocoSsd.load({
+            base: "lite_mobilenet_v2"
+        });
+
+        statusText.textContent = "Ball detector ready";
+        loadingModel = false;
+        return true;
+
+    } catch (error) {
+        console.error(error);
+        statusText.textContent = "Detector loading failed";
+        loadingModel = false;
+        return false;
+    }
+}
 
 async function startCamera() {
     try {
-        if (!navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             throw new Error("Camera not supported");
         }
 
@@ -53,22 +87,20 @@ async function startCamera() {
 
         video.srcObject = stream;
 
-        await video.play();
+        video.onloadedmetadata = async function () {
+            await video.play();
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-        cameraMessage.textContent = "Camera ON";
-        statusText.textContent = "Camera Active";
+            cameraMessage.textContent = "Camera ON";
+            statusText.textContent = "Camera Active";
+        };
 
-        previousFrame = null;
-        lastBall = null;
-        trail = [];
-        totalDistance = 0;
     } catch (error) {
+        console.error(error);
         cameraMessage.textContent = "Camera Error";
         statusText.textContent = error.name;
-        console.log(error);
     }
 }
 
@@ -89,421 +121,265 @@ function stopCamera() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    previousFrame = null;
-    lastBall = null;
-    trail = [];
-    totalDistance = 0;
-
     cameraMessage.textContent = "Camera OFF";
     statusText.textContent = "Ready";
+
     positionText.textContent = "-";
-    distanceText.textContent = "0 m";
     speedText.textContent = "0 km/h";
+    distanceText.textContent = "0 m";
 
-    trackingButton.textContent = "START TRACKING";
+    ballHistory = [];
+    lastBall = null;
+    lastTime = 0;
+    totalDistance = 0;
 }
 
-function startTracking() {
-    if (!stream) {
-        statusText.textContent = "Start camera first";
-        return;
-    }
+function resetTracking() {
+    ballHistory = [];
+    lastBall = null;
+    lastTime = 0;
+    totalDistance = 0;
 
-    tracking = !tracking;
+    positionText.textContent = "-";
+    speedText.textContent = "0 km/h";
+    distanceText.textContent = "0 m";
 
-    if (tracking) {
-        trackingButton.textContent = "STOP TRACKING";
-        statusText.textContent = "Searching for ball";
-
-        previousFrame = null;
-        lastBall = null;
-        trail = [];
-        totalDistance = 0;
-        lostFrames = 0;
-        lastTime = performance.now();
-
-        trackBall();
-    } else {
-        trackingButton.textContent = "START TRACKING";
-        statusText.textContent = "Tracking stopped";
-
-        if (animationId) {
-            cancelAnimationFrame(animationId);
-            animationId = null;
-        }
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-function getFrame() {
-    scanCtx.drawImage(
-        video,
-        0,
-        0,
-        W,
-        H
-    );
+function chooseBall(predictions) {
+    const balls = predictions.filter(p => {
+        if (p.class !== "sports ball") return false;
+        if (p.score < 0.25) return false;
 
-    return scanCtx.getImageData(
-        0,
-        0,
-        W,
-        H
-    );
-}
+        const [x, y, w, h] = p.bbox;
 
-function isBallColor(r, g, b) {
-    const brightness = (r + g + b) / 3;
+        if (w < 8 || h < 8) return false;
 
-    if (brightness < 35 || brightness > 220) {
-        return false;
+        const ratio = w / h;
+
+        if (ratio < 0.55 || ratio > 1.8) return false;
+
+        const areaRatio = (w * h) / (video.videoWidth * video.videoHeight);
+
+        if (areaRatio > 0.20) return false;
+
+        return true;
+    });
+
+    if (balls.length === 0) return null;
+
+    if (!lastBall) {
+        balls.sort((a, b) => b.score - a.score);
+        return balls[0];
     }
 
-    const redGreenDifference = r - g;
-    const greenBlueDifference = g - b;
+    let best = null;
+    let bestScore = -Infinity;
 
-    return (
-        redGreenDifference > 8 &&
-        greenBlueDifference > 3 &&
-        r > 55 &&
-        g > 35
-    );
-}
+    for (const ball of balls) {
+        const [x, y, w, h] = ball.bbox;
 
-function detectBall(frame) {
-    const pixels = frame.data;
+        const cx = x + w / 2;
+        const cy = y + h / 2;
 
-    if (!previousFrame) {
-        previousFrame = new Uint8Array(pixels);
-        return null;
-    }
+        const dx = cx - lastBall.x;
+        const dy = cy - lastBall.y;
 
-    const motion = new Uint8Array(W * H);
+        const distance = Math.sqrt(dx * dx + dy * dy);
 
-    for (let y = 1; y < H - 1; y++) {
-        for (let x = 1; x < W - 1; x++) {
+        const maximumJump =
+            Math.max(video.videoWidth, video.videoHeight) * 0.30;
 
-            const i = (y * W + x) * 4;
+        if (distance > maximumJump) continue;
 
-            const r = pixels[i];
-            const g = pixels[i + 1];
-            const b = pixels[i + 2];
+        const proximity =
+            1 - Math.min(distance / maximumJump, 1);
 
-            const oldR = previousFrame[i];
-            const oldG = previousFrame[i + 1];
-            const oldB = previousFrame[i + 2];
+        const score =
+            ball.score * 0.65 +
+            proximity * 0.35;
 
-            const difference =
-                Math.abs(r - oldR) +
-                Math.abs(g - oldG) +
-                Math.abs(b - oldB);
-
-            if (difference > 55 && isBallColor(r, g, b)) {
-                motion[y * W + x] = 1;
-            }
+        if (score > bestScore) {
+            bestScore = score;
+            best = ball;
         }
     }
 
-    previousFrame = new Uint8Array(pixels);
-
-    let bestBall = null;
-
-    for (let y = 4; y < H - 4; y += 2) {
-        for (let x = 4; x < W - 4; x += 2) {
-
-            if (!motion[y * W + x]) {
-                continue;
-            }
-
-            let points = [];
-            let minX = W;
-            let maxX = 0;
-            let minY = H;
-            let maxY = 0;
-
-            for (let yy = y - 7; yy <= y + 7; yy++) {
-                for (let xx = x - 7; xx <= x + 7; xx++) {
-
-                    if (
-                        xx < 0 ||
-                        xx >= W ||
-                        yy < 0 ||
-                        yy >= H
-                    ) {
-                        continue;
-                    }
-
-                    if (motion[yy * W + xx]) {
-                        points.push({
-                            x: xx,
-                            y: yy
-                        });
-
-                        minX = Math.min(minX, xx);
-                        maxX = Math.max(maxX, xx);
-                        minY = Math.min(minY, yy);
-                        maxY = Math.max(maxY, yy);
-                    }
-                }
-            }
-
-            if (points.length < 5 || points.length > 130) {
-                continue;
-            }
-
-            const width = maxX - minX;
-            const height = maxY - minY;
-
-            if (
-                width < 3 ||
-                height < 3 ||
-                width > 24 ||
-                height > 24
-            ) {
-                continue;
-            }
-
-            const ratio = width / height;
-
-            if (ratio < 0.45 || ratio > 2.2) {
-                continue;
-            }
-
-            let centerX = 0;
-            let centerY = 0;
-
-            for (const point of points) {
-                centerX += point.x;
-                centerY += point.y;
-            }
-
-            centerX /= points.length;
-            centerY /= points.length;
-
-            let score = points.length;
-
-            if (lastBall) {
-
-                const lastX =
-                    lastBall.x * W / canvas.width;
-
-                const lastY =
-                    lastBall.y * H / canvas.height;
-
-                const dx = centerX - lastX;
-                const dy = centerY - lastY;
-
-                const movement =
-                    Math.sqrt(dx * dx + dy * dy);
-
-                if (movement < 35) {
-                    score += 80;
-                }
-
-                if (movement > 80) {
-                    score -= 30;
-                }
-            }
-
-            if (!bestBall || score > bestBall.score) {
-                bestBall = {
-                    x: centerX,
-                    y: centerY,
-                    score: score
-                };
-            }
-        }
-    }
-
-    if (!bestBall || bestBall.score < 12) {
-        return null;
-    }
-
-    return {
-        x: bestBall.x * canvas.width / W,
-        y: bestBall.y * canvas.height / H
-    };
+    return best;
 }
 
-function drawBall(ball) {
-    ctx.beginPath();
+function updateTracking(ball) {
+    const [x, y, w, h] = ball.bbox;
 
-    ctx.arc(
-        ball.x,
-        ball.y,
-        25,
-        0,
-        Math.PI * 2
-    );
+    const centerX = x + w / 2;
+    const centerY = y + h / 2;
 
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = "white";
-    ctx.stroke();
-
-    ctx.beginPath();
-
-    ctx.arc(
-        ball.x,
-        ball.y,
-        7,
-        0,
-        Math.PI * 2
-    );
-
-    ctx.fillStyle = "white";
-    ctx.fill();
-
-    ctx.font = "bold 18px Arial";
-    ctx.fillStyle = "white";
-
-    ctx.fillText(
-        "BALL",
-        ball.x + 30,
-        ball.y - 25
-    );
-}
-
-function drawTrail() {
-    if (trail.length < 2) {
-        return;
-    }
-
-    ctx.beginPath();
-
-    ctx.moveTo(
-        trail[0].x,
-        trail[0].y
-    );
-
-    for (let i = 1; i < trail.length; i++) {
-        ctx.lineTo(
-            trail[i].x,
-            trail[i].y
-        );
-    }
-
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = "white";
-    ctx.stroke();
-}
-
-function updateMeasurements(ball) {
     const now = performance.now();
 
-    if (lastBall) {
+    if (lastBall && lastTime > 0) {
+        const dt = (now - lastTime) / 1000;
 
-        const dx =
-            ball.x - lastBall.x;
+        if (dt > 0 && dt < 1) {
+            const dx = centerX - lastBall.x;
+            const dy = centerY - lastBall.y;
 
-        const dy =
-            ball.y - lastBall.y;
+            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
 
-        const pixels =
-            Math.sqrt(dx * dx + dy * dy);
+            if (pixelDistance < Math.max(canvas.width, canvas.height) * 0.25) {
+                totalDistance += pixelDistance;
 
-        const time =
-            (now - lastTime) / 1000;
+                const pixelsPerMeter = 120;
 
-        if (time > 0 && pixels < 400) {
+                const metersPerSecond =
+                    (pixelDistance / pixelsPerMeter) / dt;
 
-            totalDistance += pixels;
+                const kmh = metersPerSecond * 3.6;
 
-            const pixelsPerSecond =
-                pixels / time;
-
-            const speed =
-                pixelsPerSecond * 0.1 * 3.6;
-
-            if (speed < 250) {
-                speedText.textContent =
-                    speed.toFixed(1) + " km/h";
+                if (kmh < 300) {
+                    speedText.textContent =
+                        Math.round(kmh) + " km/h";
+                }
             }
         }
     }
+
+    lastBall = {
+        x: centerX,
+        y: centerY
+    };
 
     lastTime = now;
 
+    ballHistory.push({
+        x: centerX,
+        y: centerY
+    });
+
+    if (ballHistory.length > 100) {
+        ballHistory.shift();
+    }
+
     positionText.textContent =
-        Math.round(ball.x) +
-        ", " +
-        Math.round(ball.y);
+        Math.round(centerX) + ", " + Math.round(centerY);
 
     distanceText.textContent =
-        (totalDistance / 100).toFixed(2) +
-        " m";
+        (totalDistance / pixelsPerMeterForDisplay()).toFixed(2) + " m";
 }
 
-function trackBall() {
-    if (!tracking || !stream) {
-        return;
+function pixelsPerMeterForDisplay() {
+    return 120;
+}
+
+function drawTracking(ball) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (ballHistory.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(ballHistory[0].x, ballHistory[0].y);
+
+        for (let i = 1; i < ballHistory.length; i++) {
+            ctx.lineTo(
+                ballHistory[i].x,
+                ballHistory[i].y
+            );
+        }
+
+        ctx.strokeStyle = "#00ff66";
+        ctx.lineWidth = 6;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
     }
-
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
-
-    const frame = getFrame();
-
-    const ball = detectBall(frame);
 
     if (ball) {
+        const [x, y, w, h] = ball.bbox;
 
-        lastBall = ball;
-        lostFrames = 0;
+        ctx.strokeStyle = "#ff3030";
+        ctx.lineWidth = 5;
+        ctx.strokeRect(x, y, w, h);
 
-        trail.push({
-            x: ball.x,
-            y: ball.y
-        });
+        ctx.beginPath();
+        ctx.arc(
+            x + w / 2,
+            y + h / 2,
+            Math.max(w, h) / 2,
+            0,
+            Math.PI * 2
+        );
 
-        if (trail.length > 80) {
-            trail.shift();
-        }
+        ctx.strokeStyle = "#00ffff";
+        ctx.lineWidth = 3;
+        ctx.stroke();
 
-        drawTrail();
-        drawBall(ball);
-        updateMeasurements(ball);
+        ctx.beginPath();
+        ctx.arc(
+            x + w / 2,
+            y + h / 2,
+            6,
+            0,
+            Math.PI * 2
+        );
 
-        statusText.textContent =
-            "BALL DETECTED";
-    } else {
+        ctx.fillStyle = "#ffff00";
+        ctx.fill();
+    }
+}
 
-        lostFrames++;
+async function trackingLoop() {
+    if (!tracking || !model) return;
 
-        drawTrail();
+    if (
+        video.readyState >= 2 &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0
+    ) {
+        try {
+            const predictions = await model.detect(video);
 
-        if (lastBall && lostFrames < 10) {
-            drawBall(lastBall);
-        }
+            const ball = chooseBall(predictions);
 
-        if (lostFrames < 10) {
-            statusText.textContent =
-                "Tracking...";
-        } else {
-            statusText.textContent =
-                "Searching for ball";
+            if (ball) {
+                updateTracking(ball);
+                drawTracking(ball);
+
+                statusText.textContent = "BALL TRACKING";
+            } else {
+                drawTracking(null);
+                statusText.textContent = "Searching for ball...";
+            }
+
+        } catch (error) {
+            console.error(error);
+            statusText.textContent = "Tracking error";
         }
     }
 
-    animationId =
-        requestAnimationFrame(trackBall);
+    animationId = requestAnimationFrame(trackingLoop);
 }
 
-startButton.addEventListener(
-    "click",
-    startCamera
-);
+async function startTracking() {
+    if (!stream) {
+        await startCamera();
+    }
 
-stopButton.addEventListener(
-    "click",
-    stopCamera
-);
+    const ready = await loadDetector();
 
-trackingButton.addEventListener(
-    "click",
-    startTracking
-);
+    if (!ready) return;
+
+    resetTracking();
+
+    tracking = true;
+
+    statusText.textContent = "BALL TRACKING";
+
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+    }
+
+    trackingLoop();
+}
+
+startButton.addEventListener("click", startCamera);
+stopButton.addEventListener("click", stopCamera);
+trackingButton.addEventListener("click", startTracking);
