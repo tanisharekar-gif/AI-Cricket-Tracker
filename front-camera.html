@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Front Camera Test</title>
+<title>Rear Camera</title>
 
 <style>
 body {
@@ -15,19 +15,18 @@ body {
 }
 
 h1 {
-    margin-top: 25px;
+    margin: 20px;
 }
 
 video {
     width: 95%;
-    max-width: 700px;
-    margin-top: 20px;
+    max-width: 800px;
     border-radius: 15px;
     background: black;
 }
 
 button {
-    margin: 20px 5px;
+    margin: 10px;
     padding: 15px 25px;
     border: none;
     border-radius: 10px;
@@ -53,7 +52,7 @@ button {
 
 <body>
 
-<h1>📱 FRONT CAMERA</h1>
+<h1>📷 REAR CAMERA</h1>
 
 <p id="status">Camera OFF</p>
 
@@ -61,28 +60,23 @@ button {
 
 <br>
 
-<button id="start">START CAMERA</button>
+<button id="start">START REAR CAMERA</button>
 <button id="stop">STOP CAMERA</button>
 
 <script>
 
 const video = document.getElementById("video");
+const startButton = document.getElementById("start");
+const stopButton = document.getElementById("stop");
 const status = document.getElementById("status");
-const start = document.getElementById("start");
-const stop = document.getElementById("stop");
 
 let stream = null;
 
-async function startCamera() {
+async function startRearCamera() {
 
     try {
 
-        status.textContent = "Requesting camera...";
-
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            status.textContent = "Camera API not supported";
-            return;
-        }
+        status.textContent = "Opening rear camera...";
 
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
@@ -90,8 +84,16 @@ async function startCamera() {
 
         stream = await navigator.mediaDevices.getUserMedia({
             video: {
-                facingMode: {
-                    ideal: "user"
+                facingMode: "environment",
+                width: {
+                    ideal: 1920
+                },
+                height: {
+                    ideal: 1080
+                },
+                frameRate: {
+                    ideal: 60,
+                    max: 60
                 }
             },
             audio: false
@@ -99,22 +101,28 @@ async function startCamera() {
 
         video.srcObject = stream;
 
-        video.onloadedmetadata = async () => {
+        await video.play();
 
-            await video.play();
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
 
-            status.textContent = "🟢 FRONT CAMERA ON";
+        status.textContent =
+            "🟢 REAR CAMERA ON | " +
+            settings.width + " × " +
+            settings.height +
+            " | " +
+            (settings.frameRate || "?") +
+            " FPS";
 
-        };
+        console.log("Camera:", settings);
 
     } catch (error) {
 
         console.error(error);
 
-        status.textContent = "🔴 " + error.name;
+        status.textContent = "🔴 " + error.name + ": " + error.message;
 
     }
-
 }
 
 function stopCamera() {
@@ -124,18 +132,15 @@ function stopCamera() {
         stream.getTracks().forEach(track => track.stop());
 
         stream = null;
-
     }
 
     video.srcObject = null;
 
     status.textContent = "Camera OFF";
-
 }
 
-start.addEventListener("click", startCamera);
-
-stop.addEventListener("click", stopCamera);
+startButton.addEventListener("click", startRearCamera);
+stopButton.addEventListener("click", stopCamera);
 
 </script>
 
