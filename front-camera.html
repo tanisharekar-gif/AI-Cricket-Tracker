@@ -1,99 +1,102 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rear Camera</title>
-
-<style>
-body {
-    margin: 0;
-    background: #111;
-    color: white;
-    font-family: Arial, sans-serif;
-    text-align: center;
-}
-
-h1 {
-    margin: 20px;
-}
-
-video {
-    width: 95%;
-    max-width: 800px;
-    border-radius: 15px;
-    background: black;
-}
-
-button {
-    margin: 10px;
-    padding: 15px 25px;
-    border: none;
-    border-radius: 10px;
-    font-size: 16px;
-    font-weight: bold;
-}
-
-#start {
-    background: green;
-    color: white;
-}
-
-#stop {
-    background: red;
-    color: white;
-}
-
-#status {
-    font-size: 18px;
-}
-</style>
 </head>
 
 <body>
 
-<h1>📷 REAR CAMERA</h1>
+<h2>Rear Camera Test</h2>
 
-<p id="status">Camera OFF</p>
+<select id="cameras"></select>
 
-<video id="video" autoplay playsinline></video>
+<br><br>
 
-<br>
+<button onclick="openCamera()">OPEN REAR CAMERA</button>
+<button onclick="stopCamera()">STOP</button>
 
-<button id="start">START REAR CAMERA</button>
-<button id="stop">STOP CAMERA</button>
+<br><br>
+
+<video id="video" autoplay playsinline style="width:100%;"></video>
+
+<p id="status">Ready</p>
 
 <script>
 
 const video = document.getElementById("video");
-const startButton = document.getElementById("start");
-const stopButton = document.getElementById("stop");
+const cameras = document.getElementById("cameras");
 const status = document.getElementById("status");
 
 let stream = null;
 
-async function startRearCamera() {
+async function getCameras() {
 
     try {
 
-        status.textContent = "Opening rear camera...";
+        await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
 
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
+        const devices =
+            await navigator.mediaDevices.enumerateDevices();
+
+        cameras.innerHTML = "";
+
+        const videoDevices =
+            devices.filter(device => device.kind === "videoinput");
+
+        videoDevices.forEach((device, index) => {
+
+            const option = document.createElement("option");
+
+            option.value = device.deviceId;
+
+            option.textContent =
+                device.label || "Camera " + (index + 1);
+
+            cameras.appendChild(option);
+
+        });
+
+        const rearCamera =
+            videoDevices.find(device =>
+                /back|rear|environment|main/i.test(device.label)
+            );
+
+        if (rearCamera) {
+            cameras.value = rearCamera.deviceId;
         }
+
+        status.textContent =
+            videoDevices.length + " camera(s) found";
+
+    } catch (error) {
+
+        status.textContent = error.name;
+
+    }
+}
+
+async function openCamera() {
+
+    try {
+
+        stopCamera();
+
+        const deviceId = cameras.value;
 
         stream = await navigator.mediaDevices.getUserMedia({
             video: {
-                facingMode: "environment",
+                deviceId: {
+                    exact: deviceId
+                },
                 width: {
                     ideal: 1920
                 },
                 height: {
                     ideal: 1080
-                },
-                frameRate: {
-                    ideal: 60,
-                    max: 60
                 }
             },
             audio: false
@@ -101,26 +104,14 @@ async function startRearCamera() {
 
         video.srcObject = stream;
 
-        await video.play();
-
-        const track = stream.getVideoTracks()[0];
-        const settings = track.getSettings();
-
-        status.textContent =
-            "🟢 REAR CAMERA ON | " +
-            settings.width + " × " +
-            settings.height +
-            " | " +
-            (settings.frameRate || "?") +
-            " FPS";
-
-        console.log("Camera:", settings);
+        status.textContent = "🟢 REAR CAMERA ACTIVE";
 
     } catch (error) {
 
         console.error(error);
 
-        status.textContent = "🔴 " + error.name + ": " + error.message;
+        status.textContent =
+            "Camera error: " + error.name;
 
     }
 }
@@ -135,12 +126,9 @@ function stopCamera() {
     }
 
     video.srcObject = null;
-
-    status.textContent = "Camera OFF";
 }
 
-startButton.addEventListener("click", startRearCamera);
-stopButton.addEventListener("click", stopCamera);
+getCameras();
 
 </script>
 
