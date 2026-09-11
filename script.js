@@ -17,16 +17,27 @@ let tracking = false;
 let model = null;
 let animationId = null;
 let loadingModel = false;
+let detecting = false;
+let frameCounter = 0;
 
 let ballHistory = [];
 let lastBall = null;
-let lastTime = 0;
+let lastDetectionTime = 0;
 let totalDistance = 0;
 let missedFrames = 0;
 
+const DETECTION_SIZE = 416;
 const PITCH_LENGTH = 20.12;
-const MAX_HISTORY = 80;
-const MAX_MISSED_FRAMES = 8;
+const MAX_HISTORY = 100;
+const MAX_MISSED = 5;
+
+const smallCanvas = document.createElement("canvas");
+smallCanvas.width = DETECTION_SIZE;
+smallCanvas.height = DETECTION_SIZE;
+
+const smallCtx = smallCanvas.getContext("2d", {
+    willReadFrequently: true
+});
 
 function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -44,7 +55,7 @@ async function loadDetector() {
     if (loadingModel) return false;
 
     loadingModel = true;
-    statusText.textContent = "Loading AI detector...";
+    statusText.textContent = "Loading AI...";
 
     try {
         if (!window.tf) {
@@ -61,12 +72,19 @@ async function loadDetector() {
 
         await tf.ready();
 
+        try {
+            await tf.setBackend("webgl");
+            await tf.ready();
+        } catch (e) {
+            console.log("WebGL unavailable");
+        }
+
         model = await cocoSsd.load({
             base: "lite_mobilenet_v2"
         });
 
         loadingModel = false;
-        statusText.textContent = "AI detector ready";
+        statusText.textContent = "AI READY";
 
         return true;
 
@@ -74,30 +92,37 @@ async function loadDetector() {
         console.error(error);
 
         loadingModel = false;
-        statusText.textContent = "AI detector failed";
+        statusText.textContent = "AI ERROR";
 
         return false;
     }
 }
 
 async function getRearCamera() {
+
     const permissionStream =
         await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false
         });
 
-    permissionStream.getTracks().forEach(track => track.stop());
+    permissionStream
+        .getTracks()
+        .forEach(track => track.stop());
 
     const devices =
         await navigator.mediaDevices.enumerateDevices();
 
     const cameras =
-        devices.filter(device => device.kind === "videoinput");
+        devices.filter(
+            device => device.kind === "videoinput"
+        );
 
     const rear =
         cameras.find(device =>
-            /back|rear|environment|main/i.test(device.label)
+            /back|rear|environment|main/i.test(
+                device.label
+            )
         );
 
     if (rear) {
@@ -108,84 +133,116 @@ async function getRearCamera() {
         return cameras[cameras.length - 1].deviceId;
     }
 
-    return cameras.length === 1
-        ? cameras[0].deviceId
-        : null;
+    if (cameras.length === 1) {
+        return cameras[0].deviceId;
+    }
+
+    return null;
 }
 
 async function startCamera() {
+
     try {
+
         if (!navigator.mediaDevices ||
             !navigator.mediaDevices.getUserMedia) {
-            throw new Error("Camera not supported");
+
+            throw new Error(
+                "Camera not supported"
+            );
         }
 
         if (stream) {
-            stream.getTracks().forEach(track => track.stop());
+            stream.getTracks()
+                .forEach(track => track.stop());
         }
 
-        cameraMessage.textContent = "Opening rear camera...";
-        statusText.textContent = "Selecting camera...";
+        cameraMessage.textContent =
+            "Opening rear camera...";
 
-        const rearCamera = await getRearCamera();
+        statusText.textContent =
+            "Selecting camera...";
+
+        const rearCamera =
+            await getRearCamera();
 
         if (!rearCamera) {
-            throw new Error("No camera found");
+            throw new Error(
+                "Rear camera not found"
+            );
         }
 
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                deviceId: {
-                    exact: rearCamera
+        stream =
+            await navigator.mediaDevices.getUserMedia({
+                video: {
+                    deviceId: {
+                        exact: rearCamera
+                    },
+                    width: {
+                        ideal: 1280
+                    },
+                    height: {
+                        ideal: 720
+                    },
+                    frameRate: {
+                        ideal: 30,
+                        max: 30
+                    }
                 },
-                width: {
-                    ideal: 1920
-                },
-                height: {
-                    ideal: 1080
-                },
-                frameRate: {
-                    ideal: 60,
-                    max: 60
-                }
-            },
-            audio: false
-        });
+                audio: false
+            });
 
         video.srcObject = stream;
 
-        video.onloadedmetadata = async function () {
-            await video.play();
+        video.onloadedmetadata =
+            async function () {
 
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+                await video.play();
 
-            const settings =
-                stream.getVideoTracks()[0].getSettings();
+                canvas.width =
+                    video.videoWidth;
 
-            cameraMessage.textContent = "REAR CAMERA ON";
+                canvas.height =
+                    video.videoHeight;
 
-            statusText.textContent =
-                "Camera " +
-                settings.width +
-                "x" +
-                settings.height +
-                " | " +
-                Math.round(settings.frameRate || 0) +
-                " FPS";
-        };
+                const settings =
+                    stream
+                        .getVideoTracks()[0]
+                        .getSettings();
+
+                cameraMessage.textContent =
+                    "REAR CAMERA ON";
+
+                statusText.textContent =
+                    "Camera " +
+                    settings.width +
+                    "x" +
+                    settings.height +
+                    " | " +
+                    Math.round(
+                        settings.frameRate || 0
+                    ) +
+                    " FPS";
+            };
 
     } catch (error) {
+
         console.error(error);
 
-        cameraMessage.textContent = "CAMERA ERROR";
+        cameraMessage.textContent =
+            "CAMERA ERROR";
+
         statusText.textContent =
-            error.name + ": " + error.message;
+            error.name +
+            ": " +
+            error.message;
     }
 }
 
 function stopCamera() {
+
     tracking = false;
+    detecting = false;
 
     if (animationId) {
         cancelAnimationFrame(animationId);
@@ -193,7 +250,10 @@ function stopCamera() {
     }
 
     if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+
+        stream.getTracks()
+            .forEach(track => track.stop());
+
         stream = null;
     }
 
@@ -206,30 +266,44 @@ function stopCamera() {
         canvas.height
     );
 
-    cameraMessage.textContent = "Camera OFF";
-    statusText.textContent = "Ready";
+    cameraMessage.textContent =
+        "Camera OFF";
 
-    positionText.textContent = "-";
-    speedText.textContent = "0 km/h";
-    distanceText.textContent = "0 m";
+    statusText.textContent =
+        "Ready";
+
+    positionText.textContent =
+        "-";
+
+    speedText.textContent =
+        "0 km/h";
+
+    distanceText.textContent =
+        "0 m";
 
     ballHistory = [];
     lastBall = null;
-    lastTime = 0;
+    lastDetectionTime = 0;
     totalDistance = 0;
     missedFrames = 0;
 }
 
 function resetTracking() {
+
     ballHistory = [];
     lastBall = null;
-    lastTime = 0;
+    lastDetectionTime = 0;
     totalDistance = 0;
     missedFrames = 0;
 
-    positionText.textContent = "-";
-    speedText.textContent = "0 km/h";
-    distanceText.textContent = "0 m";
+    positionText.textContent =
+        "-";
+
+    speedText.textContent =
+        "0 km/h";
+
+    distanceText.textContent =
+        "0 m";
 
     ctx.clearRect(
         0,
@@ -241,74 +315,86 @@ function resetTracking() {
 
 function chooseBall(predictions) {
 
-    const candidates = predictions.filter(p => {
+    const candidates =
+        predictions.filter(p => {
 
-        if (p.class !== "sports ball") {
-            return false;
-        }
+            if (p.class !== "sports ball") {
+                return false;
+            }
 
-        if (p.score < 0.35) {
-            return false;
-        }
+            if (p.score < 0.20) {
+                return false;
+            }
 
-        const [x, y, w, h] = p.bbox;
+            const [
+                x,
+                y,
+                w,
+                h
+            ] = p.bbox;
 
-        const frameArea =
-            video.videoWidth * video.videoHeight;
+            if (w < 5 || h < 5) {
+                return false;
+            }
 
-        const boxArea = w * h;
+            const ratio =
+                w / h;
 
-        const areaRatio =
-            boxArea / frameArea;
+            if (
+                ratio < 0.50 ||
+                ratio > 2.0
+            ) {
+                return false;
+            }
 
-        if (areaRatio > 0.08) {
-            return false;
-        }
+            const area =
+                w * h;
 
-        if (w < 6 || h < 6) {
-            return false;
-        }
+            const frameArea =
+                DETECTION_SIZE *
+                DETECTION_SIZE;
 
-        const ratio = w / h;
+            if (
+                area / frameArea >
+                0.18
+            ) {
+                return false;
+            }
 
-        if (ratio < 0.55 || ratio > 1.8) {
-            return false;
-        }
-
-        return true;
-    });
+            return true;
+        });
 
     if (candidates.length === 0) {
         return null;
     }
 
     if (!lastBall) {
-        candidates.sort((a, b) =>
-            b.score - a.score
+
+        candidates.sort(
+            (a, b) =>
+                b.score - a.score
         );
 
         return candidates[0];
     }
 
     let best = null;
-    let bestValue = -Infinity;
+    let bestScore = -Infinity;
 
-    const frameSize =
-        Math.max(
-            video.videoWidth,
-            video.videoHeight
-        );
+    for (const ball of candidates) {
 
-    const maximumJump =
-        frameSize * 0.22;
+        const [
+            x,
+            y,
+            w,
+            h
+        ] = ball.bbox;
 
-    for (const candidate of candidates) {
+        const cx =
+            x + w / 2;
 
-        const [x, y, w, h] =
-            candidate.bbox;
-
-        const cx = x + w / 2;
-        const cy = y + h / 2;
+        const cy =
+            y + h / 2;
 
         const dx =
             cx - lastBall.x;
@@ -322,113 +408,87 @@ function chooseBall(predictions) {
                 dy * dy
             );
 
-        if (distance > maximumJump) {
-            continue;
-        }
+        const maxJump =
+            DETECTION_SIZE * 0.40;
 
         const proximity =
             1 -
-            distance / maximumJump;
+            Math.min(
+                distance / maxJump,
+                1
+            );
 
-        const value =
-            candidate.score * 0.7 +
-            proximity * 0.3;
+        const score =
+            ball.score * 0.65 +
+            proximity * 0.35;
 
-        if (value > bestValue) {
-            bestValue = value;
-            best = candidate;
+        if (score > bestScore) {
+
+            bestScore = score;
+            best = ball;
         }
     }
 
     return best;
 }
 
-function smoothPoint(x, y) {
+function convertBall(ball) {
 
-    if (!lastBall) {
-        return {
-            x,
-            y
-        };
-    }
+    const [
+        x,
+        y,
+        w,
+        h
+    ] = ball.bbox;
 
-    const smooth = 0.55;
+    const scaleX =
+        canvas.width /
+        DETECTION_SIZE;
+
+    const scaleY =
+        canvas.height /
+        DETECTION_SIZE;
 
     return {
-        x:
-            lastBall.x +
-            (x - lastBall.x) *
-            smooth,
-
-        y:
-            lastBall.y +
-            (y - lastBall.y) *
-            smooth
+        x: x * scaleX,
+        y: y * scaleY,
+        w: w * scaleX,
+        h: h * scaleY
     };
 }
 
-function calculateSpeed(pixelDistance, dt) {
+function updateBall(ball) {
 
-    if (dt <= 0) {
-        return 0;
-    }
+    const centerX =
+        ball.x +
+        ball.w / 2;
 
-    const pitchPixels =
-        Math.max(
-            canvas.width,
-            canvas.height
-        );
-
-    const pixelsPerMeter =
-        pitchPixels / PITCH_LENGTH;
-
-    const meters =
-        pixelDistance /
-        pixelsPerMeter;
-
-    const kmh =
-        (meters / dt) * 3.6;
-
-    if (!isFinite(kmh)) {
-        return 0;
-    }
-
-    return Math.min(kmh, 250);
-}
-
-function updateTracking(ball) {
-
-    const [x, y, w, h] =
-        ball.bbox;
-
-    const rawX =
-        x + w / 2;
-
-    const rawY =
-        y + h / 2;
-
-    const point =
-        smoothPoint(
-            rawX,
-            rawY
-        );
+    const centerY =
+        ball.y +
+        ball.h / 2;
 
     const now =
         performance.now();
 
-    if (lastBall && lastTime > 0) {
+    if (lastBall &&
+        lastDetectionTime > 0) {
 
         const dt =
-            (now - lastTime) / 1000;
+            (now -
+                lastDetectionTime) /
+            1000;
 
-        if (dt > 0.015 && dt < 0.5) {
+        if (
+            dt > 0.01 &&
+            dt < 1
+        ) {
 
             const dx =
-                point.x -
+                centerX -
                 lastBall.x;
 
             const dy =
-                point.y -
+                centerY -
                 lastBall.y;
 
             const pixelDistance =
@@ -437,26 +497,33 @@ function updateTracking(ball) {
                     dy * dy
                 );
 
-            const maximumDistance =
+            if (
+                pixelDistance <
                 Math.max(
                     canvas.width,
                     canvas.height
-                ) * 0.20;
-
-            if (pixelDistance <
-                maximumDistance) {
+                ) * 0.35
+            ) {
 
                 totalDistance +=
                     pixelDistance;
 
-                const kmh =
-                    calculateSpeed(
-                        pixelDistance,
-                        dt
-                    );
+                const pixelsPerMeter =
+                    canvas.height /
+                    PITCH_LENGTH;
 
-                if (kmh > 0 &&
-                    kmh < 250) {
+                const meters =
+                    pixelDistance /
+                    pixelsPerMeter;
+
+                const kmh =
+                    (meters / dt) *
+                    3.6;
+
+                if (
+                    kmh > 1 &&
+                    kmh < 250
+                ) {
 
                     speedText.textContent =
                         Math.round(kmh) +
@@ -466,38 +533,40 @@ function updateTracking(ball) {
         }
     }
 
-    lastBall = point;
-    lastTime = now;
+    lastBall = {
+        x: centerX,
+        y: centerY
+    };
+
+    lastDetectionTime = now;
     missedFrames = 0;
 
     ballHistory.push({
-        x: point.x,
-        y: point.y
+        x: centerX,
+        y: centerY
     });
 
-    if (ballHistory.length >
-        MAX_HISTORY) {
-
+    if (
+        ballHistory.length >
+        MAX_HISTORY
+    ) {
         ballHistory.shift();
     }
 
     positionText.textContent =
-        Math.round(point.x) +
+        Math.round(centerX) +
         ", " +
-        Math.round(point.y);
+        Math.round(centerY);
 
-    const pitchScale =
-        Math.max(
-            canvas.width,
-            canvas.height
-        ) / PITCH_LENGTH;
-
-    const distanceMeters =
-        totalDistance /
-        pitchScale;
+    const pixelsPerMeter =
+        canvas.height /
+        PITCH_LENGTH;
 
     distanceText.textContent =
-        distanceMeters.toFixed(2) +
+        (
+            totalDistance /
+            pixelsPerMeter
+        ).toFixed(2) +
         " m";
 }
 
@@ -510,7 +579,9 @@ function drawTracking(ball) {
         canvas.height
     );
 
-    if (ballHistory.length > 1) {
+    if (
+        ballHistory.length > 1
+    ) {
 
         ctx.beginPath();
 
@@ -534,9 +605,13 @@ function drawTracking(ball) {
         ctx.strokeStyle =
             "#00ff66";
 
-        ctx.lineWidth = 7;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
+        ctx.lineWidth = 6;
+
+        ctx.lineCap =
+            "round";
+
+        ctx.lineJoin =
+            "round";
 
         ctx.stroke();
     }
@@ -545,27 +620,29 @@ function drawTracking(ball) {
         return;
     }
 
-    const [x, y, w, h] =
-        ball.bbox;
-
     ctx.strokeStyle =
         "#ff3030";
 
     ctx.lineWidth = 5;
 
     ctx.strokeRect(
-        x,
-        y,
-        w,
-        h
+        ball.x,
+        ball.y,
+        ball.w,
+        ball.h
     );
 
     ctx.beginPath();
 
     ctx.arc(
-        x + w / 2,
-        y + h / 2,
-        Math.max(w, h) / 2,
+        ball.x +
+        ball.w / 2,
+        ball.y +
+        ball.h / 2,
+        Math.max(
+            ball.w,
+            ball.h
+        ) / 2,
         0,
         Math.PI * 2
     );
@@ -580,8 +657,10 @@ function drawTracking(ball) {
     ctx.beginPath();
 
     ctx.arc(
-        x + w / 2,
-        y + h / 2,
+        ball.x +
+        ball.w / 2,
+        ball.y +
+        ball.h / 2,
         7,
         0,
         Math.PI * 2
@@ -593,70 +672,98 @@ function drawTracking(ball) {
     ctx.fill();
 }
 
-async function trackingLoop() {
+async function detectBall() {
 
-    if (!tracking || !model) {
+    if (
+        detecting ||
+        !model ||
+        !tracking
+    ) {
         return;
     }
 
     if (
-        video.readyState >= 2 &&
-        video.videoWidth > 0 &&
-        video.videoHeight > 0
+        video.readyState < 2 ||
+        video.videoWidth === 0
     ) {
+        return;
+    }
 
-        try {
+    detecting = true;
 
-            const predictions =
-                await model.detect(
-                    video,
-                    10,
-                    0.25
-                );
+    try {
+
+        smallCtx.drawImage(
+            video,
+            0,
+            0,
+            DETECTION_SIZE,
+            DETECTION_SIZE
+        );
+
+        const predictions =
+            await model.detect(
+                smallCanvas,
+                10,
+                0.20
+            );
+
+        const detected =
+            chooseBall(predictions);
+
+        if (detected) {
 
             const ball =
-                chooseBall(predictions);
+                convertBall(detected);
 
-            if (ball) {
+            updateBall(ball);
 
-                updateTracking(ball);
-
-                drawTracking(ball);
-
-                statusText.textContent =
-                    "BALL TRACKING";
-
-            } else {
-
-                missedFrames++;
-
-                if (
-                    lastBall &&
-                    missedFrames <=
-                    MAX_MISSED_FRAMES
-                ) {
-
-                    drawTracking(null);
-
-                    statusText.textContent =
-                        "BALL TEMPORARILY LOST";
-
-                } else {
-
-                    drawTracking(null);
-
-                    statusText.textContent =
-                        "SEARCHING FOR BALL";
-                }
-            }
-
-        } catch (error) {
-
-            console.error(error);
+            drawTracking(ball);
 
             statusText.textContent =
-                "Tracking error";
+                "🏏 BALL DETECTED";
+
+        } else {
+
+            missedFrames++;
+
+            if (
+                missedFrames >
+                MAX_MISSED
+            ) {
+
+                statusText.textContent =
+                    "SEARCHING FOR BALL";
+
+                lastBall = null;
+            }
         }
+
+    } catch (error) {
+
+        console.error(error);
+
+        statusText.textContent =
+            "AI TRACKING ERROR";
+
+    } finally {
+
+        detecting = false;
+    }
+}
+
+function trackingLoop() {
+
+    if (!tracking) {
+        return;
+    }
+
+    frameCounter++;
+
+    if (
+        frameCounter % 2 === 0
+    ) {
+        detectBall();
     }
 
     animationId =
@@ -685,9 +792,10 @@ async function startTracking() {
     resetTracking();
 
     tracking = true;
+    frameCounter = 0;
 
     statusText.textContent =
-        "BALL TRACKING";
+        "GET READY TO BOWL";
 
     if (animationId) {
         cancelAnimationFrame(
