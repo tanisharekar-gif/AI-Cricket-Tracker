@@ -1,73 +1,150 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Cricket Tracker</title>
+
+    <title>AI Cricket Ball Tracker</title>
+
     <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 </head>
 
 <body>
 
-<header>
-    <h1>🏏 AI Cricket Tracker</h1>
-    <p>Cricket Ball Tracking & Speed Analysis</p>
-</header>
+    <header>
+        <h1>🏏 AI Cricket Ball Tracker</h1>
+        <p>Advanced AI Motion & Ball Tracking</p>
+    </header>
 
-<main>
+    <main>
 
-    <section class="camera-section">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="trackingCanvas"></canvas>
-        <div id="cameraMessage">Camera OFF</div>
-    </section>
+        <section class="camera-section">
 
-    <section class="controls">
-        <button id="startButton">START CAMERA</button>
-        <button id="stopButton">STOP CAMERA</button>
-        <button id="trackingButton">START TRACKING</button>
-    </section>
+            <div class="video-container">
 
-    <section class="instructions">
-        <h3>How to use</h3>
-        <p>1. Start the camera</p>
-        <p>2. Place the cricket ball in view</p>
-        <p>3. Start tracking</p>
-        <p>4. Move/throw the ball</p>
-        <p>5. View the tracking results</p>
-    </section>
+                <video
+                    id="camera"
+                    autoplay
+                    playsinline
+                    muted>
+                </video>
 
-    <section class="stats">
+                <canvas id="trackingCanvas"></canvas>
 
-        <div class="card">
-            <h3>Tracking</h3>
-            <p id="status">Ready</p>
-        </div>
+                <div id="loading">
+                    Loading AI model...
+                </div>
 
-        <div class="card">
-            <h3>Ball Position</h3>
-            <p id="position">-</p>
-        </div>
+            </div>
 
-        <div class="card">
-            <h3>Distance</h3>
-            <p id="distance">0 m</p>
-        </div>
+            <div class="controls">
 
-        <div class="card">
-            <h3>Speed</h3>
-            <p id="speed">0 km/h</p>
-        </div>
+                <button id="startCamera">
+                    📷 Start Camera
+                </button>
 
-    </section>
+                <button id="stopCamera">
+                    ⛔ Stop Camera
+                </button>
 
-</main>
+                <button id="startTracking">
+                    🎯 Start Tracking
+                </button>
 
-<footer>
-    <p>AI Cricket Tracker</p>
-</footer>
+                <button id="stopTracking">
+                    ⏹ Stop Tracking
+                </button>
 
-<script src="script.js"></script>
+            </div>
+
+        </section>
+
+
+        <section class="status-section">
+
+            <div class="status-card">
+                <span>AI Model</span>
+                <strong id="modelStatus">Loading</strong>
+            </div>
+
+            <div class="status-card">
+                <span>Camera</span>
+                <strong id="cameraStatus">OFF</strong>
+            </div>
+
+            <div class="status-card">
+                <span>Tracking</span>
+                <strong id="trackingStatus">OFF</strong>
+            </div>
+
+        </section>
+
+
+        <section class="stats">
+
+            <div class="stat-card">
+                <span>Ball Position</span>
+                <strong id="ballPosition">--</strong>
+            </div>
+
+            <div class="stat-card">
+                <span>Speed</span>
+                <strong id="ballSpeed">-- km/h</strong>
+            </div>
+
+            <div class="stat-card">
+                <span>Distance</span>
+                <strong id="ballDistance">-- m</strong>
+            </div>
+
+            <div class="stat-card">
+                <span>Confidence</span>
+                <strong id="confidence">-- %</strong>
+            </div>
+
+        </section>
+
+
+        <section class="trajectory-section">
+
+            <h2>Ball Trajectory</h2>
+
+            <div class="trajectory-info">
+                <p id="trackingMessage">
+                    Start the camera and tracking system.
+                </p>
+            </div>
+
+        </section>
+
+
+        <section class="instructions">
+
+            <h2>How to Use</h2>
+
+            <ol>
+                <li>Place the phone/laptop camera so the playing area is visible.</li>
+                <li>Press <b>Start Camera</b>.</li>
+                <li>Wait for the AI model to load.</li>
+                <li>Press <b>Start Tracking</b>.</li>
+                <li>Move/bowl the ball through the camera view.</li>
+                <li>The AI will search for objects and track the detected ball.</li>
+            </ol>
+
+        </section>
+
+    </main>
+
+    <footer>
+        <p>AI Cricket Tracker • Advanced Computer Vision Project</p>
+    </footer>
+
+    <script src="script.js"></script>
 
 </body>
 </html>
+```
